@@ -1,189 +1,207 @@
+-- WEBHOOK V1.1 (FIXED PUBLIC SAFE)
+
+-- SERVICES
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
-local http_request = request or http_request or (http and http.request) or syn.request
 local HttpService = game:GetService("HttpService")
 local VirtualUser = game:GetService("VirtualUser")
+local Players = game:GetService("Players")
 
--- AUTOSAVE CONFIGURATION SYSTEM
+-- HTTP REQUEST (FIXED)
+local http_request =
+    (syn and syn.request)
+    or (http and http.request)
+    or request
+
+-- CONFIG SAVE
 local FileName = "ZavideConfig.json"
+local SaveLock = false
 
 local function SaveConfig()
-    local Config = {
-        WebhookURL = getgenv().WebhookURL,
-        Toggles = getgenv().Toggles,
-        Active = getgenv().SeiLogger_Active
-    }
-    writefile(FileName, HttpService:JSONEncode(Config))
+    if SaveLock then return end
+    SaveLock = true
+    task.wait(0.5)
+    pcall(function()
+        local Config = {
+            WebhookURL = getgenv().WebhookURL or "",
+            Toggles = getgenv().Toggles or {},
+            Active = getgenv().SeiLogger_Active or false
+        }
+        writefile(FileName, HttpService:JSONEncode(Config))
+    end)
+    SaveLock = false
 end
 
 local function LoadConfig()
+    getgenv().WebhookURL = ""
+    getgenv().Toggles = {Epic=false, Legendary=false, Mythical=false, Secret=false}
+    getgenv().SeiLogger_Active = false
+
     if isfile(FileName) then
-        local Success, Data = pcall(function() return HttpService:JSONDecode(readfile(FileName)) end)
-        if Success then
-            getgenv().WebhookURL = Data.WebhookURL or ""
-            getgenv().Toggles = Data.Toggles or {["Epic"] = false, ["Legendary"] = false, ["Mythical"] = false, ["Secret"] = false}
-            getgenv().SeiLogger_Active = Data.Active or false
+        local ok, content = pcall(readfile, FileName)
+        if ok and content then
+            local success, data = pcall(HttpService.JSONDecode, HttpService, content)
+            if success and data then
+                getgenv().WebhookURL = data.WebhookURL or ""
+                getgenv().Toggles = data.Toggles or getgenv().Toggles
+                getgenv().SeiLogger_Active = data.Active or false
+            end
         end
-    else
-        getgenv().WebhookURL = ""
-        getgenv().Toggles = {["Epic"] = false, ["Legendary"] = false, ["Mythical"] = false, ["Secret"] = false}
-        getgenv().SeiLogger_Active = false
     end
 end
-
 LoadConfig()
 
--- ANTI-AFK SYSTEM
-for i, v in pairs(getconnections(game:GetService("Players").LocalPlayer.Idled)) do v:Disable() end
-game:GetService("Players").LocalPlayer.Idled:Connect(function()
+-- ANTI AFK
+for _,v in pairs(getconnections(Players.LocalPlayer.Idled)) do
+    v:Disable()
+end
+Players.LocalPlayer.Idled:Connect(function()
     VirtualUser:CaptureController()
     VirtualUser:ClickButton2(Vector2.new())
 end)
 
--- UI WINDOW
+-- UI
 local Window = Fluent:CreateWindow({
     Title = "Zavide Logger",
-    SubTitle = "WritenBySei | Premium Edition",
+    SubTitle = "Premium Edition | Public Fix",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true,
-    Theme = "Dark",
-    MinimizeKey = Enum.KeyCode.LeftControl 
+    Theme = "Dark"
 })
 
-Fluent.Options.AccentColor = Color3.fromRGB(255, 0, 0)
-
-local Tabs = {
-    Main = Window:AddTab({ Title = "Settings", Icon = "settings" }),
-    Filters = Window:AddTab({ Title = "Rarity Filter", Icon = "filter" })
-}
-
--- FLOATING TOGGLE BUTTON
+-- TOGGLE BUTTON
 local function CreateToggleButton()
-    local parent = (game:GetService("CoreGui"):FindFirstChild("RobloxGui") or game:GetService("CoreGui") or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"))
-    if parent:FindFirstChild("SeiToggleGui") then parent.SeiToggleGui:Destroy() end
+    local p = game:GetService("CoreGui")
+    local sg = Instance.new("ScreenGui", p)
+    sg.Name = "SeiToggleGui"
+    sg.ResetOnSpawn = false
 
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "SeiToggleGui"
-    ScreenGui.Parent = parent
-    ScreenGui.ResetOnSpawn = false 
+    local btn = Instance.new("ImageButton", sg)
+    btn.Size = UDim2.new(0,45,0,45)
+    btn.Position = UDim2.new(0,15,0.5,-22)
+    btn.BackgroundTransparency = 0.2
+    btn.Image = "rbxassetid://134196935407184"
+    btn.Draggable = true
 
-    local ImageButton = Instance.new("ImageButton")
-    ImageButton.Parent = ScreenGui
-    ImageButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    ImageButton.BackgroundTransparency = 0.2
-    ImageButton.Position = UDim2.new(0, 15, 0.5, -22)
-    ImageButton.Size = UDim2.new(0, 45, 0, 45) 
-    ImageButton.Image = "rbxassetid://134196935407184" 
-    ImageButton.Draggable = true 
-
-    local UICorner = Instance.new("UICorner")
-    UICorner.CornerRadius = UDim.new(0, 10)
-    UICorner.Parent = ImageButton
-
-    local UIStroke = Instance.new("UIStroke")
-    UIStroke.Color = Color3.fromRGB(255, 0, 0)
-    UIStroke.Thickness = 1.5
-    UIStroke.Parent = ImageButton
-
-    ImageButton.MouseButton1Click:Connect(function()
+    Instance.new("UICorner", btn)
+    btn.MouseButton1Click:Connect(function()
         Window:Minimize()
     end)
 end
 CreateToggleButton()
 
--- DATA SCRAPER
+-- PARSER
 local function parseFishData(rawText)
     local clean = rawText:gsub("<[^>]*>", ""):gsub("%s+", " ")
-    
-    -- Filter Player
-    local player = clean:match("%[Server%]:%s*(.-)%s+obtained") or clean:match("^(.-)%s+obtained") or "Unknown Player"
-    
-    -- Filter Ikan
-    local fishName = clean:match("obtained%s+an?%s+(.-)%s?%(") or clean:match("obtained%s+an?%s+(.-)%s+with")
-    
-    -- Filter Berat
-    local weight = clean:match("%(([%d%.%s?%a]+)%)") or "N/A"
-    
-    -- Rarity Logic
-    local r, g, b = rawText:match("rgb%((%d+),%s*(%d+),%s*(%d+)%)")
+    local player = clean:match("%[Server%]:%s*(.-)%s+obtained") or "Unknown"
+    local fish = clean:match("obtained%s+an?%s+(.-)%s?%(") or "Unknown"
+    local weight = clean:match("%((.-)%)") or "N/A"
+
+    local r,g,b = rawText:match("rgb%((%d+),%s*(%d+),%s*(%d+)%)")
     local rarity = "Unknown"
-    
-    if r and g and b then
-        r, g, b = tonumber(r), tonumber(g), tonumber(b)
-        if r == 179 and g == 115 and b == 248 then rarity = "Epic"
-        elseif r == 255 and g == 185 and b == 43 then rarity = "Legendary"
-        elseif (r > 180 and g < 100 and b < 100) then rarity = "Mythical"
-        elseif (r < 100 and g > 200) or (r == 0 and g == 255 and b == 255) then 
-            rarity = "Secret" 
-        end
+
+    if r then
+        r,g,b = tonumber(r),tonumber(g),tonumber(b)
+        if r==179 and g==115 then rarity="Epic"
+        elseif r==255 and g==185 then rarity="Legendary"
+        elseif r>180 and g<100 then rarity="Mythical"
+        elseif g>200 then rarity="Secret" end
     end
-    
-    return {Player = player, Name = fishName or "Unknown Fish", Weight = weight, Rarity = rarity}
+
+    return {Player=player, Name=fish, Weight=weight, Rarity=rarity}
 end
 
--- WEBHOOK SENDER
-local Remote = game:GetService("ReplicatedStorage").Packages._Index["sleitnick_net@0.2.0"].net["RE/DisplaySystemMessage"]
-Remote.OnClientEvent:Connect(function(rawText)
-    if getgenv().WebhookURL == "" or not getgenv().SeiLogger_Active then return end
-    if not string.find(rawText, "obtained") then return end 
+-- WEBHOOK SENDER (FIXED)
+local function SendWebhook(payload)
+    if not http_request or getgenv().WebhookURL == "" then return false end
 
-    local data = parseFishData(rawText)
-    
-    if data.Rarity ~= "Unknown" and getgenv().Toggles[data.Rarity] then
-        local colorMap = {["Epic"] = 10040319, ["Legendary"] = 16766720, ["Mythical"] = 16711680, ["Secret"] = 65535}
-        local mention = (data.Rarity == "Secret") and "@everyone **SECRET FISH DETECTED!**" or ""
-
-        local embed = {
-            ["title"] = "🎣 Zavide Webhook | Fish Caught",
-            ["description"] = "A new **" .. data.Rarity:upper() .. "** fish has been caught!",
-            ["color"] = colorMap[data.Rarity],
-            ["fields"] = {
-                {["name"] = "Player Name :", ["value"] = "```" .. data.Player .. "```", ["inline"] = false},
-                {["name"] = "Fish Name :", ["value"] = "```" .. data.Name .. "```", ["inline"] = false},
-                {["name"] = "Fish Tier :", ["value"] = "```" .. data.Rarity:upper() .. "```", ["inline"] = true},
-                {["name"] = "Weight :", ["value"] = "```" .. data.Weight .. "```", ["inline"] = true},
-                {["name"] = "JobID :", ["value"] = "```" .. game.JobId .. "```", ["inline"] = false}
-            },
-            ["footer"] = {["text"] = "Zavide Logger • " .. os.date("%X")}
-        }
-
-        http_request({
+    local success, res = pcall(function()
+        return http_request({
             Url = getgenv().WebhookURL,
             Method = "POST",
             Headers = {["Content-Type"] = "application/json"},
-            Body = HttpService:JSONEncode({["content"] = mention, ["embeds"] = {embed}})
+            Body = HttpService:JSONEncode(payload)
         })
-    end
+    end)
+
+    if not success or not res then return false end
+    if res.StatusCode ~= 200 and res.StatusCode ~= 204 then return false end
+    return true
+end
+
+-- MAIN EVENT
+local Remote = game:GetService("ReplicatedStorage")
+    .Packages._Index["sleitnick_net@0.2.0"].net["RE/DisplaySystemMessage"]
+
+Remote.OnClientEvent:Connect(function(rawText)
+    if not getgenv().SeiLogger_Active or getgenv().WebhookURL == "" then return end
+    if not string.find(rawText,"obtained") then return end
+
+    local data = parseFishData(rawText)
+    if not getgenv().Toggles[data.Rarity] then return end
+
+    local colors = {
+        Epic = 10040319,
+        Legendary = 16766720,
+        Mythical = 16711680,
+        Secret = 65535
+    }
+
+    SendWebhook({
+        content = data.Rarity=="Secret" and "@everyone" or nil,
+        embeds = {{
+            title = "🎣 Zavide Logger",
+            color = colors[data.Rarity],
+            fields = {
+                {name="Player", value="```"..data.Player.."```"},
+                {name="Fish", value="```"..data.Name.."```"},
+                {name="Tier", value="```"..data.Rarity.."```", inline=true},
+                {name="Weight", value="```"..data.Weight.."```", inline=true}
+            }
+        }}
+    })
 end)
 
--- UI ELEMENTS
-Tabs.Main:AddSection("Master Control")
-local MasterToggle = Tabs.Main:AddToggle("MasterToggle", {Title = "Enable Logger", Default = getgenv().SeiLogger_Active })
-MasterToggle:OnChanged(function() 
-    getgenv().SeiLogger_Active = MasterToggle.Value 
+-- UI TABS
+local Tabs = {
+    Main = Window:AddTab({Title="Settings"}),
+    Filters = Window:AddTab({Title="Filters"})
+}
+
+Tabs.Main:AddToggle("MT",{
+    Title="Enable Logger",
+    Default=getgenv().SeiLogger_Active
+}):OnChanged(function(v)
+    getgenv().SeiLogger_Active = v
     SaveConfig()
 end)
 
-Tabs.Main:AddInput("WebhookInput", {
-    Title = "Discord Webhook",
-    Default = getgenv().WebhookURL,
-    Placeholder = "Paste Link Here...",
-    Callback = function(Value)
-        if Value:find("http") then
-            getgenv().WebhookURL = Value:gsub("discord.com", "hooks.hyra.io")
-            SaveConfig()
-        end
+Tabs.Main:AddInput("WH",{
+    Title="Discord Webhook",
+    Default=getgenv().WebhookURL,
+    Placeholder="https://discord.com/api/webhooks/...",
+    Callback=function(v)
+        getgenv().WebhookURL = v -- FIXED
+        SaveConfig()
     end
 })
 
-Tabs.Filters:AddSection("Fish Rarity")
-for rarity, _ in pairs(getgenv().Toggles) do
-    local Tgl = Tabs.Filters:AddToggle(rarity, {Title = "Log " .. rarity, Default = getgenv().Toggles[rarity] })
-    Tgl:OnChanged(function() 
-        getgenv().Toggles[rarity] = Tgl.Value 
+Tabs.Main:AddButton({
+    Title="Test Webhook",
+    Callback=function()
+        SendWebhook({content="✅ Webhook connected!"})
+    end
+})
+
+for r,_ in pairs(getgenv().Toggles) do
+    Tabs.Filters:AddToggle(r,{
+        Title="Log "..r,
+        Default=getgenv().Toggles[r]
+    }):OnChanged(function(v)
+        getgenv().Toggles[r] = v
         SaveConfig()
     end)
 end
 
 Window:SelectTab(1)
-Fluent:Notify({Title = "Zavide Logger", Content = "Selamat Bermain!", Duration = 5})
+Fluent:Notify({Title="Zavide Logger", Content="Public Safe Loaded", Duration=4})
